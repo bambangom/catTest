@@ -21,20 +21,24 @@ def analyse_image_bytes(image_bytes):
     try:
         encoded_image = base64.b64encode(image_bytes).decode("utf-8")
         prompt = (
-            "Tu es un expert en évaluation cadastrale au Sénégal, spécialisé dans l’analyse visuelle automatisée des bâtiments. "
-            "À partir d'une photo, tu dois :\n"
-            "- Décrire brièvement l'apparence (matériaux, style, état de la façade, hauteur).\n"
-            "- Déterminer le nombre de niveaux visibles : Terrain nu=0, RDC=1, R+1=2, etc.\n"
-            "- Vérifier la présence de compteurs visibles ou boîtes électriques : plusieurs compteurs = collectif.\n"
-            "- Évaluer individuel/collectif selon l'apparence.\n"
-            "- Catégoriser : 1/2/3/4 (individuel) ou A/B/C/D (collectif).\n"
-            "- Attention : ne jamais classer en 1 ou A un bâtiment dégradé.\n"
-            "- Calculer :\n"
-            "  ▪ CENVET (1.0 à 0.3)\n"
-            "  ▪ Coefficient voisinage (1.1, 1.0, 0.9, 0.8)\n"
-            "  ▪ Coefficient abattement (1.0 si <6 ans, sinon 0.5-0.95).\n"
-            "Réponds en JSON :\n"
-            "{'niveaux': ?, 'type_immeuble': 'individuel/collectif/terrain nu', 'categorie': 'A/B/C/D/1/2/3/4/Aucun', 'description': '...', 'cenvet': ?, 'coefficient_voisinage': ?, 'coefficient_abatement': ?}"
+            "Tu es un expert en évaluation cadastrale au Sénégal. "
+            "À partir d'une photo d'un bâtiment, tu dois : "
+            "- Décrire brièvement l'apparence générale (style, matériaux, hauteur, état apparent). "
+            "- Déterminer le nombre de niveaux selon : Terrain nu=0, RDC=1, R+1=2, R+2=3, etc. "
+            "- Déterminer si l'immeuble est individuel, collectif ou terrain nu. "
+            "- Catégoriser : 1/2/3/4 pour individuel ou A/B/C/D pour collectif, basé sur confort et équipements. "
+            "- Calculer le coefficient d'entretien et vétusté (CENVET) entre 1.0 et 0.5 selon état. "
+            "- Calculer le coefficient de voisinage (1.1, 1.0, 0.9 ou 0.8) selon avantages ou inconvénients. "
+            "- Déterminer le coefficient d'abattement : "
+            "1.0 si moins de 6 ans, "
+            "entre 0.5 et 0.95 si plus vieux selon état apparent. "
+            "Réponds uniquement en JSON : "
+            "{'niveaux': ?, 'type_immeuble': 'individuel/collectif/terrain nu', "
+            "'categorie': 'A/B/C/D/1/2/3/4/Aucun', "
+            "'description': '...', "
+            "'cenvet': ?, "
+            "'coefficient_voisinage': ?, "
+            "'coefficient_abatement': ?}"
         )
 
         response = client.chat.completions.create(
@@ -115,16 +119,56 @@ def telecharger():
 def generate_pdf(nicad):
     result_file = os.path.join(app.config["RESULT_FOLDER"], "analyse.xlsx")
     df = pd.read_excel(result_file)
-    df["NICAD_CLEAN"] = df["NICAD"].astype(str).str.split(".", n=1).str.get(0)
+
+    # Nettoyer les NICAD
+    df["NICAD_CLEAN"] = df["NICAD"].astype(str).str.split(".").str[0]
     match = df[df["NICAD_CLEAN"] == nicad]
 
-    if match.empty:
-        return abort(404, description=f"NICAD {nicad} non trouvé.")
+    # S'il n'existe pas ou est incomplet, refaire l'analyse
+    if match.empty or match.iloc[0].isnull().any():
+        # 🖼 Retrouver l'image
+        image_path = None
+        for ext in [".jpg", ".jpeg", ".png"]:
+            path = os.path.join(app.config["UPLOAD_FOLDER"], nicad + ext)
+            if os.path.exists(path):
+                image_path = path
+                break
 
-    row = match.iloc[0]
-    extensions = [".jpg", ".jpeg", ".png"]
-    image_path = next((os.path.join(app.config["UPLOAD_FOLDER"], nicad + ext) for ext in extensions if os.path.exists(os.path.join(app.config["UPLOAD_FOLDER"], nicad + ext))), None)
+        if image_path:
+            with open(image_path, "rb") as f:
+                image_bytes = f.read()
+            data_ai = analyse_image_bytes(image_bytes)
 
+            new_row = {
+                "NICAD": nicad,
+                "Type d'immeuble": data_ai.get("type_immeuble", "Non précisé"),
+                "Catégorie": data_ai.get("categorie", "Non précisé"),
+                "Niveaux": data_ai.get("niveaux", "Non précisé"),
+                "Description": data_ai.get("description", "Non précisé"),
+                "CENVET": data_ai.get("cenvet", "Non précisé"),
+                "Voisinage": data_ai.get("coefficient_voisinage", "Non précisé"),
+                "Abattement": data_ai.get("coefficient_abatement", "Non précisé")
+            }
+
+            df = df[df["NICAD_CLEAN"] != nicad]  # Supprimer l’ancienne ligne s’il y avait
+            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+            df.to_excel(result_file, index=False)
+            row = new_row
+        else:
+            row = {
+                "NICAD": nicad,
+                "Type d'immeuble": "Non trouvé",
+                "Catégorie": "Non précisé",
+                "Niveaux": "Non précisé",
+                "Description": "Aperçu image uniquement. Analyse non retrouvée.",
+                "CENVET": "-",
+                "Voisinage": "-",
+                "Abattement": "-"
+            }
+    else:
+        row = match.iloc[0]
+
+    # Génération PDF
     pdf_path = os.path.join(app.config["RESULT_FOLDER"], f"{nicad}.pdf")
     c = canvas.Canvas(pdf_path, pagesize=A4)
     width, height = A4
@@ -134,18 +178,20 @@ def generate_pdf(nicad):
     c.drawString(50, y, "📄 Rapport d’Analyse Cadastrale par IA")
     y -= 40
 
+    champs = {
+        "NICAD": row.get("NICAD", nicad),
+        "Type": row.get("Type d'immeuble", "Non précisé"),
+        "Catégorie": row.get("Catégorie", "Non précisé"),
+        "Niveaux": row.get("Niveaux", "Non précisé"),
+        "Description": row.get("Description", "Non précisé"),
+        "CENVET": row.get("CENVET", "-"),
+        "Voisinage": row.get("Voisinage", "-"),
+        "Abattement": row.get("Abattement", "-")
+    }
+
     c.setFont("Helvetica", 12)
-    for label, value in [
-        ("NICAD", row["NICAD"]),
-        ("Type", row["Type d'immeuble"]),
-        ("Catégorie", row["Catégorie"]),
-        ("Niveaux", row["Niveaux"]),
-        ("Description", row["Description"]),
-        ("CENVET", row["CENVET"]),
-        ("Voisinage", row["Voisinage"]),
-        ("Abattement", row["Abattement"])
-    ]:
-        if label == "Description":
+    for label, value in champs.items():
+        if label == "Description" and isinstance(value, str):
             c.drawString(50, y, f"{label} :")
             y -= 18
             for line in wrap(str(value), width=90):
@@ -155,11 +201,15 @@ def generate_pdf(nicad):
             c.drawString(50, y, f"{label} : {value}")
             y -= 25
 
-    if image_path:
-        try:
-            c.drawImage(ImageReader(image_path), 50, y - 200, width=200, height=150)
-        except Exception as e:
-            print(f"Erreur image PDF : {e}")
+    # Image
+    for ext in [".jpg", ".jpeg", ".png"]:
+        image_path = os.path.join(app.config["UPLOAD_FOLDER"], nicad + ext)
+        if os.path.exists(image_path):
+            try:
+                c.drawImage(ImageReader(image_path), 50, y - 200, width=200, height=150)
+                break
+            except Exception as e:
+                print(f"Erreur image PDF : {e}")
 
     c.save()
     return send_file(pdf_path, as_attachment=True)
