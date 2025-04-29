@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, send_file, send_from_directory, url_for, abort
-import openai, base64, pandas as pd, json, ast
+import openai, os, base64, pandas as pd, json, ast
 from werkzeug.utils import secure_filename
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
@@ -13,6 +13,7 @@ app.config["RESULT_FOLDER"] = "results"
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 os.makedirs(app.config["RESULT_FOLDER"], exist_ok=True)
 
+# Initialiser OpenAI
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def analyse_image_bytes(image_bytes):
@@ -55,15 +56,18 @@ def analyse_image_bytes(image_bytes):
         )
 
         content = response.choices[0].message.content
+        print("📥 Réponse OpenAI brute :")
+        print(content)
+
         try:
             json_part = content.split("{", 1)[1].rsplit("}", 1)[0]
             return json.loads("{" + json_part + "}")
         except Exception as e:
-            print("Parsing JSON failed:", e)
+            print("⚠️ Échec parsing JSON :", e)
             return {"error": "Erreur de parsing OpenAI", "brute": content}
 
     except Exception as e:
-        print("Erreur OpenAI :", e)
+        print(f"❌ Erreur OpenAI : {e}")
         return {"error": str(e)}
 
 @app.route("/", methods=["GET", "POST"])
@@ -114,9 +118,12 @@ def telecharger():
 def generate_pdf(nicad):
     result_file = os.path.join(app.config["RESULT_FOLDER"], "analyse.xlsx")
     df = pd.read_excel(result_file)
+    
+    # Nettoyer les NICAD
     df["NICAD_CLEAN"] = df["NICAD"].astype(str).str.split(".").str[0]
     match = df[df["NICAD_CLEAN"] == nicad]
 
+    # Début PDF
     pdf_path = os.path.join(app.config["RESULT_FOLDER"], f"{nicad}.pdf")
     c = canvas.Canvas(pdf_path, pagesize=A4)
     width, height = A4
@@ -125,6 +132,13 @@ def generate_pdf(nicad):
     c.setFont("Helvetica-Bold", 16)
     c.drawString(50, y, "📄 Rapport d’Analyse Cadastrale par IA")
     y -= 40
+
+    image_path = None
+    for ext in [".jpg", ".jpeg", ".png"]:
+        path = os.path.join(app.config["UPLOAD_FOLDER"], nicad + ext)
+        if os.path.exists(path):
+            image_path = path
+            break
 
     if not match.empty:
         row = match.iloc[0]
@@ -139,6 +153,7 @@ def generate_pdf(nicad):
             "Abattement": row["Abattement"]
         }
     else:
+        # Résumé minimal
         data = {
             "NICAD": nicad,
             "Type": "Non trouvé",
@@ -155,15 +170,11 @@ def generate_pdf(nicad):
         c.drawString(50, y, f"{label} : {value}")
         y -= 25
 
-    # Ajouter l'image si elle existe
-    for ext in [".jpg", ".jpeg", ".png"]:
-        image_path = os.path.join(app.config["UPLOAD_FOLDER"], nicad + ext)
-        if os.path.exists(image_path):
-            try:
-                c.drawImage(ImageReader(image_path), 50, y - 200, width=200, height=150)
-                break
-            except Exception as e:
-                print("Erreur image PDF :", e)
+    if image_path:
+        try:
+            c.drawImage(ImageReader(image_path), 50, y - 200, width=200, height=150)
+        except Exception as e:
+            print(f"Erreur image PDF : {e}")
 
     c.save()
     return send_file(pdf_path, as_attachment=True)
