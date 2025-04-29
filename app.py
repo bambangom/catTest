@@ -1,4 +1,3 @@
-# app.py
 from flask import Flask, render_template, request, send_file, send_from_directory, url_for
 import openai, os, base64, pandas as pd, json, ast
 from werkzeug.utils import secure_filename
@@ -9,7 +8,8 @@ app.config["RESULT_FOLDER"] = "results"
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 os.makedirs(app.config["RESULT_FOLDER"], exist_ok=True)
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# ✅ Utiliser l'objet client de la nouvelle version OpenAI
+client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def analyse_image_bytes(image_bytes):
     try:
@@ -34,7 +34,9 @@ def analyse_image_bytes(image_bytes):
             "'coefficient_voisinage': ?, "
             "'coefficient_abatement': ?}"
         )
-        response = openai.chat.completions.create(
+
+        # ✅ Appel correct pour openai>=1.0
+        response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": prompt},
@@ -50,11 +52,15 @@ def analyse_image_bytes(image_bytes):
         )
         content = response.choices[0].message.content
         data = content.split("{", 1)[1].rsplit("}", 1)[0]
+
         try:
             return json.loads("{" + data + "}")
-        except:
+        except Exception as e:
+            print(f"⚠️ Erreur JSON : {e}")
             return ast.literal_eval("{" + data + "}")
+
     except Exception as e:
+        print(f"❌ Erreur OpenAI : {e}")
         return {"error": str(e)}
 
 @app.route("/", methods=["GET", "POST"])
@@ -62,6 +68,8 @@ def index():
     results = []
     if request.method == "POST":
         files = request.files.getlist("images")
+        if not files:
+            return render_template("index.html", resultats=[], message="⚠️ Aucune image envoyée.")
         for file in files:
             filename = secure_filename(file.filename)
             filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
@@ -78,10 +86,11 @@ def index():
                 "CENVET": data.get("cenvet", "Non précisé"),
                 "Voisinage": data.get("coefficient_voisinage", "Non précisé"),
                 "Abattement": data.get("coefficient_abatement", "Non précisé")
-
             })
+
         df = pd.DataFrame(results)
         df.to_excel(os.path.join(app.config["RESULT_FOLDER"], "analyse.xlsx"), index=False)
+
     return render_template("index.html", resultats=results)
 
 @app.route("/uploads/<filename>")
@@ -91,5 +100,7 @@ def uploaded_file(filename):
 @app.route("/telecharger")
 def telecharger():
     return send_file("results/analyse.xlsx", as_attachment=True)
+
+# ✅ Bind explicit pour Render (sinon port non détecté)
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
