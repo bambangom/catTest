@@ -3,12 +3,14 @@ import openai, os, base64, pandas as pd, json, ast
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
+app.debug = True
+
 app.config["UPLOAD_FOLDER"] = "uploads"
 app.config["RESULT_FOLDER"] = "results"
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 os.makedirs(app.config["RESULT_FOLDER"], exist_ok=True)
 
-# ✅ Utiliser l'objet client de la nouvelle version OpenAI
+# ✅ Initialiser le client OpenAI
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def analyse_image_bytes(image_bytes):
@@ -35,7 +37,6 @@ def analyse_image_bytes(image_bytes):
             "'coefficient_abatement': ?}"
         )
 
-        # ✅ Appel correct pour openai>=1.0
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
@@ -50,14 +51,18 @@ def analyse_image_bytes(image_bytes):
             ],
             temperature=0,
         )
-        content = response.choices[0].message.content
-        data = content.split("{", 1)[1].rsplit("}", 1)[0]
 
+        content = response.choices[0].message.content
+        print("📥 Réponse OpenAI brute :")
+        print(content)
+
+        # ✅ Essayer de parser correctement le JSON
         try:
-            return json.loads("{" + data + "}")
+            json_part = content.split("{", 1)[1].rsplit("}", 1)[0]
+            return json.loads("{" + json_part + "}")
         except Exception as e:
-            print(f"⚠️ Erreur JSON : {e}")
-            return ast.literal_eval("{" + data + "}")
+            print("⚠️ Échec parsing JSON :", e)
+            return {"error": "Erreur de parsing OpenAI", "brute": content}
 
     except Exception as e:
         print(f"❌ Erreur OpenAI : {e}")
@@ -68,18 +73,25 @@ def index():
     results = []
     if request.method == "POST":
         files = request.files.getlist("images")
-        if not files:
-            return render_template("index.html", resultats=[], message="⚠️ Aucune image envoyée.")
+        if not files or files[0].filename == "":
+            return render_template("index.html", resultats=[], message="⚠️ Veuillez sélectionner une image.")
+
         for file in files:
+            if not file.filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+                continue  # Ignorer fichiers non images
+
             filename = secure_filename(file.filename)
             filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
             file.save(filepath)
-            image_bytes = open(filepath, "rb").read()
+            with open(filepath, "rb") as f:
+                image_bytes = f.read()
+
             data = analyse_image_bytes(image_bytes)
+
             results.append({
                 "image_url": url_for('uploaded_file', filename=filename),
                 "NICAD": filename.rsplit(".", 1)[0],
-                "Type d'immeuble": data.get("type_immeuble", "Non précisé"),
+                "Type d'immeuble": data.get("type_immeuble", data.get("error", "Erreur")),
                 "Catégorie": data.get("categorie", "Non précisé"),
                 "Niveaux": data.get("niveaux", "Non précisé"),
                 "Description": data.get("description", "Non précisé"),
@@ -99,8 +111,8 @@ def uploaded_file(filename):
 
 @app.route("/telecharger")
 def telecharger():
-    return send_file("results/analyse.xlsx", as_attachment=True)
+    return send_file(os.path.join(app.config["RESULT_FOLDER"], "analyse.xlsx"), as_attachment=True)
 
-# ✅ Bind explicit pour Render (sinon port non détecté)
+# ✅ Important pour Render
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
