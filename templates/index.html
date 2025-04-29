@@ -38,20 +38,30 @@
       max-height: 120px;
       object-fit: cover;
       border-radius: 8px;
+      margin: 5px;
     }
-    .illustrations {
-      margin-top: 2rem;
-      text-align: center;
+    .preview-box {
+      position: relative;
+      display: inline-block;
     }
-    .illustrations img {
-      margin: 0 10px;
-      border-radius: 12px;
-      width: 30%;
-      max-width: 200px;
+    .remove-btn {
+      position: absolute;
+      top: 0;
+      right: 0;
+      background: red;
+      color: white;
+      border: none;
+      border-radius: 50%;
+      padding: 0 7px;
+      font-size: 16px;
+      cursor: pointer;
     }
     .image-result {
       max-height: 150px;
       border-radius: 8px;
+    }
+    .pdf-button {
+      margin-top: 10px;
     }
   </style>
 </head>
@@ -64,9 +74,10 @@
   </div>
 
   <div class="container upload-section">
-    <form method="POST" enctype="multipart/form-data" class="text-center">
+    <form method="POST" enctype="multipart/form-data" class="text-center" id="uploadForm">
       <label class="form-label fs-5 mb-3">📂 Charger une ou plusieurs images de bâtiments :</label>
-      <input class="form-control form-control-lg mb-4" type="file" name="images" multiple required>
+      <input class="form-control form-control-lg mb-4" type="file" name="images" id="fileInput" multiple required>
+      <div id="previewArea" class="d-flex flex-wrap justify-content-center mb-3"></div>
       <button type="submit" class="btn btn-primary btn-lg px-4">Analyser maintenant</button>
     </form>
 
@@ -79,9 +90,14 @@
       </div>
       <div class="col-md-8">
         <p><strong>NICAD :</strong> {{ r["NICAD"] }}<br>
-           <strong>Type :</strong> {{ r["Type d'immeuble"] }} | <strong>Catégorie :</strong> {{ r["Catégorie"] }} | <strong>Niveaux :</strong> {{ r["Niveaux"] }}</p>
+           <strong>Type :</strong> {{ r["Type d'immeuble"] }} |
+           <strong>Catégorie :</strong> {{ r["Catégorie"] }} |
+           <strong>Niveaux :</strong> {{ r["Niveaux"] }}</p>
         <p><strong>Description :</strong> {{ r["Description"] }}</p>
-        <p>CENVET : {{ r["CENVET"] }} | Voisinage : {{ r["Voisinage"] }} | Abattement : {{ r["Abattement"] }}</p>
+        <p>CENVET : {{ r["CENVET"] }} |
+           Voisinage : {{ r["Voisinage"] }} |
+           Abattement : {{ r["Abattement"] }}</p>
+        <a href="/pdf/{{ r.NICAD }}" class="btn btn-outline-secondary pdf-button">📄 Télécharger le rapport PDF</a>
       </div>
     </div>
     {% endfor %}
@@ -90,6 +106,46 @@
     </div>
     {% endif %}
   </div>
+
+  <script>
+    const input = document.getElementById("fileInput");
+    const preview = document.getElementById("previewArea");
+
+    input.addEventListener("change", () => {
+      preview.innerHTML = "";
+      const files = Array.from(input.files);
+      files.forEach((file, i) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const container = document.createElement("div");
+          container.classList.add("preview-box");
+
+          const img = document.createElement("img");
+          img.src = reader.result;
+          img.className = "img-preview";
+
+          const btn = document.createElement("button");
+          btn.textContent = "×";
+          btn.className = "remove-btn";
+          btn.onclick = () => removeImage(i);
+
+          container.appendChild(img);
+          container.appendChild(btn);
+          preview.appendChild(container);
+        };
+        reader.readAsDataURL(file);
+      });
+    });
+
+    function removeImage(index) {
+      const dt = new DataTransfer();
+      const files = Array.from(input.files);
+      files.splice(index, 1);
+      files.forEach(f => dt.items.add(f));
+      input.files = dt.files;
+      input.dispatchEvent(new Event("change"));
+    }
+  </script>
 
 </body>
 </html>
