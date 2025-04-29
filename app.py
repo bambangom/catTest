@@ -94,7 +94,7 @@ def generate_pdf(nicad):
             new_row = {
                 "NICAD": nicad,
                 "Type d'immeuble": data_ai.get("type_immeuble", "Non précisé"),
-                "Catégorie": data_ai.get("categorie", "Non précisé),
+                "Catégorie": data_ai.get("categorie", "Non précisé"),
                 "Niveaux": data_ai.get("niveaux", "Non précisé"),
                 "Description": data_ai.get("description", "Non précisé"),
                 "CENVET": data_ai.get("cenvet", "-"),
