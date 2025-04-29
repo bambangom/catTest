@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Analyse Cadastrale par IA – DGID</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body {
+      background: #f5f8fa;
+      font-family: 'Segoe UI', sans-serif;
+    }
+    .hero {
+      background: #0d3b66;
+      color: white;
+      padding: 3rem 2rem 2rem;
+      text-align: center;
+      position: relative;
+    }
+    .logo-dgid {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      height: 50px;
+    }
+    .hero h1 {
+      font-size: 2.5rem;
+      font-weight: bold;
+    }
+    .upload-section {
+      margin-top: -50px;
+      background: white;
+      padding: 2rem;
+      border-radius: 12px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.05);
+    }
+    .img-preview {
+      max-height: 120px;
+      object-fit: cover;
+      border-radius: 8px;
+    }
+    .illustrations {
+      margin-top: 2rem;
+      text-align: center;
+    }
+    .illustrations img {
+      margin: 0 10px;
+      border-radius: 12px;
+      width: 30%;
+      max-width: 200px;
+    }
+    .image-result {
+      max-height: 150px;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="hero">
+    <img src="{{ url_for('static', filename='dgid-logo3.png') }}" alt="DGID Logo" class="logo-dgid">
+    <h1>🔍 Analyse Cadastrale par Intelligence Artificielle</h1>
+    <p class="lead">Téléversez vos photos pour une analyse automatisée basée sur les normes fiscales et cadastrales du Sénégal.</p>
+  </div>
+
+  <div class="container upload-section">
+    <form method="POST" enctype="multipart/form-data" class="text-center">
+      <label class="form-label fs-5 mb-3">📂 Charger une ou plusieurs images de bâtiments :</label>
+      <input class="form-control form-control-lg mb-4" type="file" name="images" multiple required>
+      <button type="submit" class="btn btn-primary btn-lg px-4">Analyser maintenant</button>
+    </form>
+
+    {% if resultats %}
+    <h4 class="mt-5 mb-3 text-center">✅ Résultats de l'analyse IA</h4>
+    {% for r in resultats %}
+    <div class="row align-items-center mb-4">
+      <div class="col-md-4 text-center">
+        <img src="{{ r.image_url }}" alt="Aperçu image" class="img-thumbnail image-result">
+      </div>
+      <div class="col-md-8">
+        <p><strong>NICAD :</strong> {{ r["NICAD"] }}<br>
+           <strong>Type :</strong> {{ r["Type d'immeuble"] }} | <strong>Catégorie :</strong> {{ r["Catégorie"] }} | <strong>Niveaux :</strong> {{ r["Niveaux"] }}</p>
+        <p><strong>Description :</strong> {{ r["Description"] }}</p>
+        <p>CENVET : {{ r["CENVET"] }} | Voisinage : {{ r["Voisinage"] }} | Abattement : {{ r["Abattement"] }}</p>
+      </div>
+    </div>
+    {% endfor %}
+    <div class="text-center">
+      <a href="/telecharger" class="btn btn-success mt-3">📥 Télécharger le fichier Excel</a>
+    </div>
+    {% endif %}
+  </div>
+
+</body>
+</html>
