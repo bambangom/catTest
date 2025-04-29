@@ -1,6 +1,9 @@
 from flask import Flask, render_template, request, send_file, send_from_directory, url_for
 import openai, os, base64, pandas as pd, json, ast
 from werkzeug.utils import secure_filename
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
 
 app = Flask(__name__)
 app.debug = True
@@ -77,7 +80,7 @@ def index():
             return render_template("index.html", resultats=[], message="⚠️ Veuillez sélectionner une image.")
 
         for file in files:
-            if not file.filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+            if not file.filename.lower().endswith((".png", ".jpg", ".jpeg")):
                 continue  # Ignorer fichiers non images
 
             filename = secure_filename(file.filename)
@@ -112,6 +115,45 @@ def uploaded_file(filename):
 @app.route("/telecharger")
 def telecharger():
     return send_file(os.path.join(app.config["RESULT_FOLDER"], "analyse.xlsx"), as_attachment=True)
+
+@app.route("/pdf/<nicad>")
+def generate_pdf(nicad):
+    path = os.path.join(app.config["RESULT_FOLDER"], f"{nicad}.pdf")
+    result_file = os.path.join(app.config["RESULT_FOLDER"], "analyse.xlsx")
+    df = pd.read_excel(result_file)
+    row = df[df["NICAD"] == nicad].iloc[0]
+    image_path = os.path.join(app.config["UPLOAD_FOLDER"], nicad + ".jpg")  # ajuste si .jpeg/.png
+
+    c = canvas.Canvas(path, pagesize=A4)
+    width, height = A4
+    y = height - 50
+
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(50, y, "📄 Rapport d’Analyse Cadastrale par IA")
+    y -= 40
+
+    c.setFont("Helvetica", 12)
+    for label, value in [
+        ("NICAD", row["NICAD"]),
+        ("Type", row["Type d'immeuble"]),
+        ("Catégorie", row["Catégorie"]),
+        ("Niveaux", row["Niveaux"]),
+        ("Description", row["Description"]),
+        ("CENVET", row["CENVET"]),
+        ("Voisinage", row["Voisinage"]),
+        ("Abattement", row["Abattement"])
+    ]:
+        c.drawString(50, y, f"{label} : {value}")
+        y -= 25
+
+    if os.path.exists(image_path):
+        try:
+            c.drawImage(ImageReader(image_path), 50, y - 200, width=200, height=150)
+        except Exception as e:
+            print(f"Erreur image PDF : {e}")
+
+    c.save()
+    return send_file(path, as_attachment=True)
 
 # ✅ Important pour Render
 if __name__ == "__main__":
