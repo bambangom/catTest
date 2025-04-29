@@ -118,12 +118,56 @@ def telecharger():
 def generate_pdf(nicad):
     result_file = os.path.join(app.config["RESULT_FOLDER"], "analyse.xlsx")
     df = pd.read_excel(result_file)
-    
+
     # Nettoyer les NICAD
     df["NICAD_CLEAN"] = df["NICAD"].astype(str).str.split(".").str[0]
     match = df[df["NICAD_CLEAN"] == nicad]
 
-    # Début PDF
+    # S'il n'existe pas ou est incomplet, refaire l'analyse
+    if match.empty or match.iloc[0].isnull().any():
+        # 🖼 Retrouver l'image
+        image_path = None
+        for ext in [".jpg", ".jpeg", ".png"]:
+            path = os.path.join(app.config["UPLOAD_FOLDER"], nicad + ext)
+            if os.path.exists(path):
+                image_path = path
+                break
+
+        if image_path:
+            with open(image_path, "rb") as f:
+                image_bytes = f.read()
+            data_ai = analyse_image_bytes(image_bytes)
+
+            new_row = {
+                "NICAD": nicad,
+                "Type d'immeuble": data_ai.get("type_immeuble", "Non précisé"),
+                "Catégorie": data_ai.get("categorie", "Non précisé"),
+                "Niveaux": data_ai.get("niveaux", "Non précisé"),
+                "Description": data_ai.get("description", "Non précisé"),
+                "CENVET": data_ai.get("cenvet", "Non précisé"),
+                "Voisinage": data_ai.get("coefficient_voisinage", "Non précisé"),
+                "Abattement": data_ai.get("coefficient_abatement", "Non précisé")
+            }
+
+            df = df[df["NICAD_CLEAN"] != nicad]  # Supprimer l’ancienne ligne s’il y avait
+            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+            df.to_excel(result_file, index=False)
+            row = new_row
+        else:
+            row = {
+                "NICAD": nicad,
+                "Type d'immeuble": "Non trouvé",
+                "Catégorie": "Non précisé",
+                "Niveaux": "Non précisé",
+                "Description": "Aperçu image uniquement. Analyse non retrouvée.",
+                "CENVET": "-",
+                "Voisinage": "-",
+                "Abattement": "-"
+            }
+    else:
+        row = match.iloc[0]
+
+    # Génération PDF
     pdf_path = os.path.join(app.config["RESULT_FOLDER"], f"{nicad}.pdf")
     c = canvas.Canvas(pdf_path, pagesize=A4)
     width, height = A4
@@ -133,51 +177,35 @@ def generate_pdf(nicad):
     c.drawString(50, y, "📄 Rapport d’Analyse Cadastrale par IA")
     y -= 40
 
-    image_path = None
-    for ext in [".jpg", ".jpeg", ".png"]:
-        path = os.path.join(app.config["UPLOAD_FOLDER"], nicad + ext)
-        if os.path.exists(path):
-            image_path = path
-            break
-
-    if not match.empty:
-        row = match.iloc[0]
-        data = {
-            "NICAD": row["NICAD"],
-            "Type": row["Type d'immeuble"],
-            "Catégorie": row["Catégorie"],
-            "Niveaux": row["Niveaux"],
-            "Description": row["Description"],
-            "CENVET": row["CENVET"],
-            "Voisinage": row["Voisinage"],
-            "Abattement": row["Abattement"]
-        }
-    else:
-        # Résumé minimal
-        data = {
-            "NICAD": nicad,
-            "Type": "Non trouvé",
-            "Catégorie": "Non précisé",
-            "Niveaux": "Non précisé",
-            "Description": "Aperçu image uniquement. Analyse non retrouvée.",
-            "CENVET": "-",
-            "Voisinage": "-",
-            "Abattement": "-"
-        }
+    champs = {
+        "NICAD": row.get("NICAD", nicad),
+        "Type": row.get("Type d'immeuble", "Non précisé"),
+        "Catégorie": row.get("Catégorie", "Non précisé"),
+        "Niveaux": row.get("Niveaux", "Non précisé"),
+        "Description": row.get("Description", "Non précisé"),
+        "CENVET": row.get("CENVET", "-"),
+        "Voisinage": row.get("Voisinage", "-"),
+        "Abattement": row.get("Abattement", "-")
+    }
 
     c.setFont("Helvetica", 12)
-    for label, value in data.items():
+    for label, value in champs.items():
         c.drawString(50, y, f"{label} : {value}")
         y -= 25
 
-    if image_path:
-        try:
-            c.drawImage(ImageReader(image_path), 50, y - 200, width=200, height=150)
-        except Exception as e:
-            print(f"Erreur image PDF : {e}")
+    # Image
+    for ext in [".jpg", ".jpeg", ".png"]:
+        image_path = os.path.join(app.config["UPLOAD_FOLDER"], nicad + ext)
+        if os.path.exists(image_path):
+            try:
+                c.drawImage(ImageReader(image_path), 50, y - 200, width=200, height=150)
+                break
+            except Exception as e:
+                print(f"Erreur image PDF : {e}")
 
     c.save()
     return send_file(pdf_path, as_attachment=True)
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
