@@ -62,7 +62,7 @@ def analyse_image_bytes(image_bytes):
             json_part = content.split("{", 1)[1].rsplit("}", 1)[0]
             return json.loads("{" + json_part + "}")
         except Exception as e:
-            print("⚠️ Échec parsing JSON :", e)
+            print(⚠️ Échec parsing JSON :", e)
             return {"error": "Erreur de parsing OpenAI", "brute": content}
 
     except Exception as e:
@@ -117,7 +117,7 @@ def telecharger():
 def generate_pdf(nicad):
     result_file = os.path.join(app.config["RESULT_FOLDER"], "analyse.xlsx")
     df = pd.read_excel(result_file)
-    df["NICAD_CLEAN"] = df["NICAD"].astype(str).str.rsplit(".", 1).str[0]
+    df["NICAD_CLEAN"] = df["NICAD"].astype(str).str.rsplit(".", n=1).str.get(0)
     match = df[df["NICAD_CLEAN"] == nicad]
 
     if match.empty:
