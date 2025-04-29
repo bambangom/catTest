@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, send_file, send_from_directory, url_for
+from flask import Flask, render_template, request, send_file, send_from_directory, url_for, abort
 import openai, os, base64, pandas as pd, json, ast
 from werkzeug.utils import secure_filename
 from reportlab.lib.pagesizes import A4
@@ -13,7 +13,6 @@ app.config["RESULT_FOLDER"] = "results"
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 os.makedirs(app.config["RESULT_FOLDER"], exist_ok=True)
 
-# ✅ Initialiser le client OpenAI
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def analyse_image_bytes(image_bytes):
@@ -59,7 +58,6 @@ def analyse_image_bytes(image_bytes):
         print("📥 Réponse OpenAI brute :")
         print(content)
 
-        # ✅ Essayer de parser correctement le JSON
         try:
             json_part = content.split("{", 1)[1].rsplit("}", 1)[0]
             return json.loads("{" + json_part + "}")
@@ -81,7 +79,7 @@ def index():
 
         for file in files:
             if not file.filename.lower().endswith((".png", ".jpg", ".jpeg")):
-                continue  # Ignorer fichiers non images
+                continue
 
             filename = secure_filename(file.filename)
             filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
@@ -90,7 +88,6 @@ def index():
                 image_bytes = f.read()
 
             data = analyse_image_bytes(image_bytes)
-
             results.append({
                 "image_url": url_for('uploaded_file', filename=filename),
                 "NICAD": filename.rsplit(".", 1)[0],
@@ -118,13 +115,19 @@ def telecharger():
 
 @app.route("/pdf/<nicad>")
 def generate_pdf(nicad):
-    path = os.path.join(app.config["RESULT_FOLDER"], f"{nicad}.pdf")
     result_file = os.path.join(app.config["RESULT_FOLDER"], "analyse.xlsx")
     df = pd.read_excel(result_file)
-    row = df[df["NICAD"] == nicad].iloc[0]
-    image_path = os.path.join(app.config["UPLOAD_FOLDER"], nicad + ".jpg")  # ajuste si .jpeg/.png
+    df["NICAD_CLEAN"] = df["NICAD"].astype(str).str.rsplit(".", 1).str[0]
+    match = df[df["NICAD_CLEAN"] == nicad]
 
-    c = canvas.Canvas(path, pagesize=A4)
+    if match.empty:
+        return abort(404, description=f"NICAD {nicad} non trouvé.")
+
+    row = match.iloc[0]
+    image_path = os.path.join(app.config["UPLOAD_FOLDER"], nicad + ".jpg")
+
+    pdf_path = os.path.join(app.config["RESULT_FOLDER"], f"{nicad}.pdf")
+    c = canvas.Canvas(pdf_path, pagesize=A4)
     width, height = A4
     y = height - 50
 
@@ -153,8 +156,7 @@ def generate_pdf(nicad):
             print(f"Erreur image PDF : {e}")
 
     c.save()
-    return send_file(path, as_attachment=True)
+    return send_file(pdf_path, as_attachment=True)
 
-# ✅ Important pour Render
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

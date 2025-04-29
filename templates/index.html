@@ -13,55 +13,45 @@
     .hero {
       background: #0d3b66;
       color: white;
-      padding: 3rem 2rem 2rem;
+      padding: 2rem 1rem;
       text-align: center;
       position: relative;
     }
     .logo-dgid {
       position: absolute;
-      top: 20px;
+      top: 15px;
       left: 20px;
-      height: 50px;
+      height: 40px;
     }
     .hero h1 {
-      font-size: 2.5rem;
+      font-size: 2rem;
       font-weight: bold;
     }
     .upload-section {
-      margin-top: -50px;
+      margin-top: -30px;
       background: white;
-      padding: 2rem;
+      padding: 1.5rem;
       border-radius: 12px;
       box-shadow: 0 8px 20px rgba(0, 0, 0, 0.05);
     }
     .img-preview {
-      max-height: 120px;
+      max-height: 100px;
       object-fit: cover;
       border-radius: 8px;
       margin: 5px;
-    }
-    .preview-box {
-      position: relative;
-      display: inline-block;
-    }
-    .remove-btn {
-      position: absolute;
-      top: 0;
-      right: 0;
-      background: red;
-      color: white;
-      border: none;
-      border-radius: 50%;
-      padding: 0 7px;
-      font-size: 16px;
-      cursor: pointer;
     }
     .image-result {
       max-height: 150px;
       border-radius: 8px;
     }
     .pdf-button {
-      margin-top: 10px;
+      margin-right: 10px;
+    }
+    .btn-wrap {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      flex-wrap: wrap;
     }
   </style>
 </head>
@@ -70,12 +60,11 @@
   <div class="hero">
     <img src="{{ url_for('static', filename='dgid-logo3.png') }}" alt="DGID Logo" class="logo-dgid">
     <h1>🔍 Analyse Cadastrale par Intelligence Artificielle</h1>
-    <p class="lead">Téléversez vos photos pour une analyse automatisée basée sur les normes fiscales et cadastrales du Sénégal.</p>
+    <p class="lead mb-0">📂 Charger une ou plusieurs images de bâtiments</p>
   </div>
 
   <div class="container upload-section">
     <form method="POST" enctype="multipart/form-data" class="text-center" id="uploadForm">
-      <label class="form-label fs-5 mb-3">📂 Charger une ou plusieurs images de bâtiments :</label>
       <input class="form-control form-control-lg mb-4" type="file" name="images" id="fileInput" multiple required>
       <div id="previewArea" class="d-flex flex-wrap justify-content-center mb-3"></div>
       <button type="submit" class="btn btn-primary btn-lg px-4">Analyser maintenant</button>
@@ -97,13 +86,13 @@
         <p>CENVET : {{ r["CENVET"] }} |
            Voisinage : {{ r["Voisinage"] }} |
            Abattement : {{ r["Abattement"] }}</p>
-        <a href="/pdf/{{ r.NICAD }}" class="btn btn-outline-secondary pdf-button">📄 Télécharger le rapport PDF</a>
+        <div class="btn-wrap mt-2">
+          <a href="/pdf/{{ r.NICAD }}" class="btn btn-outline-secondary pdf-button">📄 Télécharger le rapport PDF</a>
+          <a href="/telecharger" class="btn btn-success">📥 Télécharger le fichier Excel</a>
+        </div>
       </div>
     </div>
     {% endfor %}
-    <div class="text-center">
-      <a href="/telecharger" class="btn btn-success mt-3">📥 Télécharger le fichier Excel</a>
-    </div>
     {% endif %}
   </div>
 
@@ -113,39 +102,19 @@
 
     input.addEventListener("change", () => {
       preview.innerHTML = "";
-      const files = Array.from(input.files);
-      files.forEach((file, i) => {
+      Array.from(input.files).forEach((file, i) => {
         const reader = new FileReader();
         reader.onload = () => {
-          const container = document.createElement("div");
-          container.classList.add("preview-box");
-
           const img = document.createElement("img");
           img.src = reader.result;
           img.className = "img-preview";
-
-          const btn = document.createElement("button");
-          btn.textContent = "×";
-          btn.className = "remove-btn";
-          btn.onclick = () => removeImage(i);
-
-          container.appendChild(img);
-          container.appendChild(btn);
-          preview.appendChild(container);
+          preview.appendChild(img);
         };
         reader.readAsDataURL(file);
       });
     });
-
-    function removeImage(index) {
-      const dt = new DataTransfer();
-      const files = Array.from(input.files);
-      files.splice(index, 1);
-      files.forEach(f => dt.items.add(f));
-      input.files = dt.files;
-      input.dispatchEvent(new Event("change"));
-    }
   </script>
 
 </body>
 </html>
+"""
