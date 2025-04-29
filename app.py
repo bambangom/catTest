@@ -21,18 +21,21 @@ def analyse_image_bytes(image_bytes):
     try:
         encoded_image = base64.b64encode(image_bytes).decode("utf-8")
         prompt = (
-            "Tu es un expert en évaluation cadastrale au Sénégal. "
-            "À partir d'une photo d'un bâtiment, tu dois : "
-            "- Décrire brièvement l'apparence générale (style, matériaux, hauteur, état apparent). "
-            "- Déterminer le nombre de niveaux selon : Terrain nu=0, RDC=1, R+1=2, R+2=3, etc. "
-            "- Déterminer si l'immeuble est individuel, collectif ou terrain nu. "
-            "- Catégoriser : 1/2/3/4 pour individuel ou A/B/C/D pour collectif, basé sur confort et équipements. "
-            "- Calculer le coefficient d'entretien et vétusté (CENVET) entre 1.0 et 0.3 selon état. "
-            "- Calculer le coefficient de voisinage (1.1, 1.0, 0.9 ou 0.8) selon avantages ou inconvénients. "
-            "- Déterminer le coefficient d'abattement : "
-            "1.0 si moins de 6 ans, "
-            "entre 0.5 et 0.95 si plus vieux selon état apparent. "
-            "Réponds uniquement en JSON : "
+            "Tu es un expert en évaluation cadastrale au Sénégal, spécialisé dans l’analyse visuelle automatisée des bâtiments. "
+            "À partir d'une photo, tu dois :\n"
+            "- Décrire brièvement l'apparence (matériaux, style, état de la façade, hauteur).\n"
+            "- Déterminer le nombre de niveaux visibles : Terrain nu=0, RDC=1, R+1=2, etc.\n"
+            "- Vérifier la présence de compteurs visibles ou boîtes électriques sur la façade : plus de 2 compteurs suggèrent un immeuble collectif.\n"
+            "- Évaluer si c'est un bâtiment individuel ou collectif. Plusieurs compteurs, plusieurs accès ou plusieurs unités visibles = collectif.\n"
+            "- Classer en catégorie cadastrale :\n"
+            "   ▪ 1, 2, 3, 4 pour les bâtiments individuels (1 = très bon standing, 4 = précaire)\n"
+            "   ▪ A, B, C, D pour les collectifs (A = très bon confort, D = dégradé)\n"
+            "- Attention : ne jamais classer en 1 ou A un bâtiment à façade défraîchie ou sans confort visible.\n"
+            "- Calculer :\n"
+            "   ▪ le coefficient d'entretien et vétusté (CENVET) entre 1.0 et 0.3\n"
+            "   ▪ le coefficient de voisinage : 1.1, 1.0, 0.9 ou 0.8\n"
+            "   ▪ le coefficient d’abattement : 1.0 si moins de 6 ans, sinon entre 0.5 et 0.95 selon vétusté\n"
+            "Réponds uniquement en JSON, sans commentaire :\n"
             "{'niveaux': ?, 'type_immeuble': 'individuel/collectif/terrain nu', "
             "'categorie': 'A/B/C/D/1/2/3/4/Aucun', "
             "'description': '...', "
@@ -70,6 +73,42 @@ def analyse_image_bytes(image_bytes):
     except Exception as e:
         print(f"❌ Erreur OpenAI : {e}")
         return {"error": str(e)}
+
+@app.route("/", methods=["GET", "POST"])
+def index():
+    results = []
+    if request.method == "POST":
+        files = request.files.getlist("images")
+        if not files or files[0].filename == "":
+            return render_template("index.html", resultats=[], message="⚠️ Veuillez sélectionner une image.")
+
+        for file in files:
+            if not file.filename.lower().endswith((".png", ".jpg", ".jpeg")):
+                continue
+
+            filename = secure_filename(file.filename)
+            filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+            file.save(filepath)
+            with open(filepath, "rb") as f:
+                image_bytes = f.read()
+
+            data = analyse_image_bytes(image_bytes)
+            results.append({
+                "image_url": url_for('uploaded_file', filename=filename),
+                "NICAD": filename.rsplit(".", 1)[0],
+                "Type d'immeuble": data.get("type_immeuble", data.get("error", "Erreur")),
+                "Catégorie": data.get("categorie", "Non précisé"),
+                "Niveaux": data.get("niveaux", "Non précisé"),
+                "Description": data.get("description", "Non précisé"),
+                "CENVET": data.get("cenvet", "Non précisé"),
+                "Voisinage": data.get("coefficient_voisinage", "Non précisé"),
+                "Abattement": data.get("coefficient_abatement", "Non précisé")
+            })
+
+        df = pd.DataFrame(results)
+        df.to_excel(os.path.join(app.config["RESULT_FOLDER"], "analyse.xlsx"), index=False)
+
+    return render_template("index.html", resultats=results)
 
 @app.route("/pdf/<nicad>")
 def generate_pdf(nicad):
