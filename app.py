@@ -72,12 +72,13 @@ def index():
                 "image_url": url_for('uploaded_file', filename=filename),
                 "NICAD": filename.rsplit(".", 1)[0],
                 "Type d'immeuble": data.get("type_immeuble", "Non précisé"),
-                "Catégorie": data.get("categorie", "Non précisé),
-                "Niveaux": data.get("niveaux", "Non précisé),
-                "Description": data.get("description", "Non précisé),
-                "CENVET": data.get("cenvet", "Non précisé),
-                "Voisinage": data.get("coefficient_voisinage", "Non précisé),
-                "Abattement": data.get("coefficient_abatement", "Non précisé)
+                "Catégorie": data.get("categorie", "Non précisé"),
+                "Niveaux": data.get("niveaux", "Non précisé"),
+                "Description": data.get("description", "Non précisé"),
+                "CENVET": data.get("cenvet", "Non précisé"),
+                "Voisinage": data.get("coefficient_voisinage", "Non précisé"),
+                "Abattement": data.get("coefficient_abatement", "Non précisé")
+
             })
         df = pd.DataFrame(results)
         df.to_excel(os.path.join(app.config["RESULT_FOLDER"], "analyse.xlsx"), index=False)
