@@ -91,3 +91,5 @@ def uploaded_file(filename):
 @app.route("/telecharger")
 def telecharger():
     return send_file("results/analyse.xlsx", as_attachment=True)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
