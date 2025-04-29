@@ -1,5 +1,5 @@
-from flask import Flask, render_template, request, send_file, send_from_directory, url_for, abort, jsonify
-import openai, os, base64, pandas as pd, json
+from flask import Flask, render_template, request, send_file, send_from_directory, url_for, abort
+import openai, os, base64, pandas as pd, json, ast
 from werkzeug.utils import secure_filename
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
@@ -41,24 +41,28 @@ def analyse_image_bytes(image_bytes):
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": prompt},
-                {"role": "user", "content": [
-                    {"type": "text", "text": "Voici l'image, analyse-la."},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded_image}"}}
-                ]}
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Voici l'image, analyse-la selon ces règles :"},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded_image}"}}
+                    ],
+                },
             ],
             temperature=0,
         )
 
         content = response.choices[0].message.content
-        print("📅 Réponse OpenAI brute :")
+        print("📥 Réponse OpenAI brute :")
         print(content)
 
         try:
             json_part = content.split("{", 1)[1].rsplit("}", 1)[0]
             return json.loads("{" + json_part + "}")
         except Exception as e:
-            print("⚠️ Erreur parsing JSON :", e)
-            return {"error": "Erreur parsing OpenAI", "brute": content}
+            print("⚠️ Échec parsing JSON :", e)
+            return {"error": "Erreur de parsing OpenAI", "brute": content}
+
     except Exception as e:
         print(f"❌ Erreur OpenAI : {e}")
         return {"error": str(e)}
@@ -78,12 +82,10 @@ def index():
             filename = secure_filename(file.filename)
             filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
             file.save(filepath)
-
             with open(filepath, "rb") as f:
                 image_bytes = f.read()
 
             data = analyse_image_bytes(image_bytes)
-
             results.append({
                 "image_url": url_for('uploaded_file', filename=filename),
                 "NICAD": filename.rsplit(".", 1)[0],
@@ -101,9 +103,9 @@ def index():
 
     return render_template("index.html", resultats=results)
 
-@app.route("/uploads/<filename>")
+@app.route("/uploads/<path:filename>")
 def uploaded_file(filename):
-    return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 @app.route("/telecharger")
 def telecharger():
@@ -113,14 +115,15 @@ def telecharger():
 def generate_pdf(nicad):
     result_file = os.path.join(app.config["RESULT_FOLDER"], "analyse.xlsx")
     df = pd.read_excel(result_file)
-
-    df["NICAD_CLEAN"] = df["NICAD"].astype(str).str.split(".").str[0]
+    df["NICAD_CLEAN"] = df["NICAD"].astype(str).str.split(".", n=1).str.get(0)
     match = df[df["NICAD_CLEAN"] == nicad]
 
-    if not match.empty:
-        row = match.iloc[0]
-    else:
-        return "NICAD non trouvé", 404
+    if match.empty:
+        return abort(404, description=f"NICAD {nicad} non trouvé.")
+
+    row = match.iloc[0]
+    extensions = [".jpg", ".jpeg", ".png"]
+    image_path = next((os.path.join(app.config["UPLOAD_FOLDER"], nicad + ext) for ext in extensions if os.path.exists(os.path.join(app.config["UPLOAD_FOLDER"], nicad + ext))), None)
 
     pdf_path = os.path.join(app.config["RESULT_FOLDER"], f"{nicad}.pdf")
     c = canvas.Canvas(pdf_path, pagesize=A4)
@@ -128,54 +131,38 @@ def generate_pdf(nicad):
     y = height - 50
 
     c.setFont("Helvetica-Bold", 16)
-    c.drawString(50, y, "■ Rapport d’Analyse Cadastrale par IA")
+    c.drawString(50, y, "📄 Rapport d’Analyse Cadastrale par IA")
     y -= 40
 
-    champs = {
-        "NICAD": row.get("NICAD", ""),
-        "Type": row.get("Type d'immeuble", ""),
-        "Catégorie": row.get("Catégorie", ""),
-        "Niveaux": row.get("Niveaux", ""),
-        "Description": row.get("Description", ""),
-        "CENVET": row.get("CENVET", ""),
-        "Voisinage": row.get("Voisinage", ""),
-        "Abattement": row.get("Abattement", "")
-    }
-
     c.setFont("Helvetica", 12)
-    for label, value in champs.items():
+    for label, value in [
+        ("NICAD", row["NICAD"]),
+        ("Type", row["Type d'immeuble"]),
+        ("Catégorie", row["Catégorie"]),
+        ("Niveaux", row["Niveaux"]),
+        ("Description", row["Description"]),
+        ("CENVET", row["CENVET"]),
+        ("Voisinage", row["Voisinage"]),
+        ("Abattement", row["Abattement"])
+    ]:
         if label == "Description":
             c.drawString(50, y, f"{label} :")
             y -= 18
-            phrases = [p.strip() for p in value.replace("\n", " ").split(".") if p.strip()]
-            for phrase in phrases:
-                for line in wrap(f"- {phrase.strip()}.", width=90):
-                    c.drawString(70, y, line)
-                    y -= 15
+            for line in wrap(str(value), width=90):
+                c.drawString(70, y, f"- {line}")
+                y -= 15
         else:
             c.drawString(50, y, f"{label} : {value}")
-            y -= 22
+            y -= 25
 
-    for ext in [".jpg", ".jpeg", ".png"]:
-        image_path = os.path.join(app.config["UPLOAD_FOLDER"], nicad + ext)
-        if os.path.exists(image_path):
-            try:
-                c.drawImage(ImageReader(image_path), 50, y - 200, width=200, height=150)
-                break
-            except Exception as e:
-                print(f"Erreur image PDF : {e}")
+    if image_path:
+        try:
+            c.drawImage(ImageReader(image_path), 50, y - 200, width=200, height=150)
+        except Exception as e:
+            print(f"Erreur image PDF : {e}")
 
     c.save()
     return send_file(pdf_path, as_attachment=True)
-
-@app.route("/api/analyse", methods=["POST"])
-def api_analyse():
-    if "image" not in request.files:
-        return jsonify({"error": "Aucune image fournie"}), 400
-    image = request.files["image"]
-    image_bytes = image.read()
-    result = analyse_image_bytes(image_bytes)
-    return jsonify(result)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
