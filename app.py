@@ -4,6 +4,7 @@ from werkzeug.utils import secure_filename
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
+from textwrap import wrap
 
 app = Flask(__name__)
 app.debug = True
@@ -56,7 +57,7 @@ def analyse_image_bytes(image_bytes):
         )
 
         content = response.choices[0].message.content
-        print("📥 Réponse OpenAI brute :")
+        print("📅 Réponse OpenAI brute :")
         print(content)
 
         try:
@@ -70,62 +71,14 @@ def analyse_image_bytes(image_bytes):
         print(f"❌ Erreur OpenAI : {e}")
         return {"error": str(e)}
 
-@app.route("/", methods=["GET", "POST"])
-def index():
-    results = []
-    if request.method == "POST":
-        files = request.files.getlist("images")
-        if not files or files[0].filename == "":
-            return render_template("index.html", resultats=[], message="⚠️ Veuillez sélectionner une image.")
-
-        for file in files:
-            if not file.filename.lower().endswith((".png", ".jpg", ".jpeg")):
-                continue
-
-            filename = secure_filename(file.filename)
-            filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-            file.save(filepath)
-            with open(filepath, "rb") as f:
-                image_bytes = f.read()
-
-            data = analyse_image_bytes(image_bytes)
-            results.append({
-                "image_url": url_for('uploaded_file', filename=filename),
-                "NICAD": filename.rsplit(".", 1)[0],
-                "Type d'immeuble": data.get("type_immeuble", data.get("error", "Erreur")),
-                "Catégorie": data.get("categorie", "Non précisé"),
-                "Niveaux": data.get("niveaux", "Non précisé"),
-                "Description": data.get("description", "Non précisé"),
-                "CENVET": data.get("cenvet", "Non précisé"),
-                "Voisinage": data.get("coefficient_voisinage", "Non précisé"),
-                "Abattement": data.get("coefficient_abatement", "Non précisé")
-            })
-
-        df = pd.DataFrame(results)
-        df.to_excel(os.path.join(app.config["RESULT_FOLDER"], "analyse.xlsx"), index=False)
-
-    return render_template("index.html", resultats=results)
-
-@app.route("/uploads/<filename>")
-def uploaded_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
-
-@app.route("/telecharger")
-def telecharger():
-    return send_file(os.path.join(app.config["RESULT_FOLDER"], "analyse.xlsx"), as_attachment=True)
-
 @app.route("/pdf/<nicad>")
 def generate_pdf(nicad):
     result_file = os.path.join(app.config["RESULT_FOLDER"], "analyse.xlsx")
     df = pd.read_excel(result_file)
-
-    # Nettoyer les NICAD
     df["NICAD_CLEAN"] = df["NICAD"].astype(str).str.split(".").str[0]
     match = df[df["NICAD_CLEAN"] == nicad]
 
-    # S'il n'existe pas ou est incomplet, refaire l'analyse
     if match.empty or match.iloc[0].isnull().any():
-        # 🖼 Retrouver l'image
         image_path = None
         for ext in [".jpg", ".jpeg", ".png"]:
             path = os.path.join(app.config["UPLOAD_FOLDER"], nicad + ext)
@@ -141,15 +94,15 @@ def generate_pdf(nicad):
             new_row = {
                 "NICAD": nicad,
                 "Type d'immeuble": data_ai.get("type_immeuble", "Non précisé"),
-                "Catégorie": data_ai.get("categorie", "Non précisé"),
+                "Catégorie": data_ai.get("categorie", "Non précisé),
                 "Niveaux": data_ai.get("niveaux", "Non précisé"),
                 "Description": data_ai.get("description", "Non précisé"),
-                "CENVET": data_ai.get("cenvet", "Non précisé"),
-                "Voisinage": data_ai.get("coefficient_voisinage", "Non précisé"),
-                "Abattement": data_ai.get("coefficient_abatement", "Non précisé")
+                "CENVET": data_ai.get("cenvet", "-"),
+                "Voisinage": data_ai.get("coefficient_voisinage", "-"),
+                "Abattement": data_ai.get("coefficient_abatement", "-")
             }
 
-            df = df[df["NICAD_CLEAN"] != nicad]  # Supprimer l’ancienne ligne s’il y avait
+            df = df[df["NICAD_CLEAN"] != nicad]
             df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
             df.to_excel(result_file, index=False)
             row = new_row
@@ -167,14 +120,13 @@ def generate_pdf(nicad):
     else:
         row = match.iloc[0]
 
-    # Génération PDF
     pdf_path = os.path.join(app.config["RESULT_FOLDER"], f"{nicad}.pdf")
     c = canvas.Canvas(pdf_path, pagesize=A4)
     width, height = A4
     y = height - 50
 
     c.setFont("Helvetica-Bold", 16)
-    c.drawString(50, y, "📄 Rapport d’Analyse Cadastrale par IA")
+    c.drawString(50, y, "\u25a0 Rapport d’Analyse Cadastrale par IA")
     y -= 40
 
     champs = {
@@ -190,10 +142,18 @@ def generate_pdf(nicad):
 
     c.setFont("Helvetica", 12)
     for label, value in champs.items():
-        c.drawString(50, y, f"{label} : {value}")
-        y -= 25
+        if label == "Description" and isinstance(value, str):
+            c.drawString(50, y, f"{label} :")
+            y -= 18
+            phrases = [p.strip() for p in value.replace("\n", " ").split(".") if p.strip()]
+            for phrase in phrases:
+                for line in wrap(f"- {phrase.strip()}.", width=90):
+                    c.drawString(70, y, line)
+                    y -= 15
+        else:
+            c.drawString(50, y, f"{label} : {value}")
+            y -= 22
 
-    # Image
     for ext in [".jpg", ".jpeg", ".png"]:
         image_path = os.path.join(app.config["UPLOAD_FOLDER"], nicad + ext)
         if os.path.exists(image_path):
@@ -205,7 +165,6 @@ def generate_pdf(nicad):
 
     c.save()
     return send_file(pdf_path, as_attachment=True)
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
